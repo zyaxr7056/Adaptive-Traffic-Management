@@ -1,89 +1,101 @@
 import streamlit as st
 import cv2
-from ultralytics import YOLO
+import subprocess
+from detection import TrafficDetector
 
-# 1. Set up the page layout
-st.set_page_config(page_title="Traffic Management System", layout="wide")
-st.title("🚦 AI Traffic Management Dashboard")
+# --- Page Configuration ---
+st.set_page_config(page_title="Adaptive Traffic AI", layout="wide")
+st.title("🚦 Adaptive Traffic Management Dashboard")
 
-@st.cache_resource
-def load_model():
-    return YOLO('yolov8n.pt')
+# --- Sidebar Controls ---
+with st.sidebar:
+    st.header("Control Panel")
+    start_cameras = st.button("Start Camera Feeds", type="primary")
+    stop_cameras = st.button("Stop Cameras")
+    st.divider()
     
-model = load_model()
+    # Launch Pygame simulation completely untouched in the background
+    if st.button("Launch Pygame Simulation"):
+        subprocess.Popen(["python", "src/simulation.py"])
+        st.success("Simulation launched in native window!")
 
-# --- NEW: Use Session State for Buttons ---
-if "run_video" not in st.session_state:
-    st.session_state.run_video = False
+# --- Main Dashboard Layout ---
+# Create 2 columns for the top row, 2 for the bottom
+col1, col2 = st.columns(2)
+col3, col4 = st.columns(2)
 
-def start_video():
-    st.session_state.run_video = True
-
-def stop_video():
-    st.session_state.run_video = False
-
-st.sidebar.header("Controls")
-# Bind the buttons to our state functions
-st.sidebar.button("Start Video", on_click=start_video)
-st.sidebar.button("Stop Video", on_click=stop_video)
-
-# 2. Create the UI Layout
-col1, col2 = st.columns([3, 1])
-
+# Placeholders for our video frames and metric counts
 with col1:
-    st.subheader("Live Traffic Feed")
-    frame_placeholder = st.empty()
+    st.subheader("North Camera")
+    count_n = st.empty()
+    frame_n = st.empty()
 
 with col2:
-    st.subheader("Traffic Stats")
-    count_placeholder = st.empty()
-    count_placeholder.metric(label="Total Vehicles Counted", value=0)
+    st.subheader("East Camera")
+    count_e = st.empty()
+    frame_e = st.empty()
 
-# 3. Processing Logic 
-if st.session_state.run_video:
-    # --- FIXED: Correct relative path from the root directory ---
-    video_path = "data/raw/test_video.mp4" 
-    cap = cv2.VideoCapture(video_path)
+with col3:
+    st.subheader("South Camera")
+    count_s = st.empty()
+    frame_s = st.empty()
+
+with col4:
+    st.subheader("West Camera")
+    count_w = st.empty()
+    frame_w = st.empty()
+
+# --- Video Processing Loop ---
+if start_cameras:
+    # Initialize our AI Detector
+    detector = TrafficDetector()
     
-    if not cap.isOpened():
-        st.error(f"Error: Could not open video file at {video_path}. Please check the path.")
-    else:
-        vehicle_classes = [2, 3, 5, 7]
-        vehicle_count = 0
-        counted_ids = set()
-        line_y = 350 
-        
-        # Loop runs as long as there are frames AND the stop button hasn't been clicked
-        while cap.isOpened() and st.session_state.run_video:
+    # Path to your raw video (we use the same one 4 times for now)
+    video_path = "data/raw/test_video.mp4" # UPDATE THIS if your file is named differently!
+    
+    caps = [cv2.VideoCapture(video_path) for _ in range(4)]
+    
+    while True:
+        if stop_cameras:
+            break
+            
+        frames = []
+        for cap in caps:
             ret, frame = cap.read()
             if not ret:
-                st.sidebar.info("Video finished.")
-                st.session_state.run_video = False
-                break
-                
-            results = model.track(frame, persist=True, classes=vehicle_classes, conf=0.5, verbose=False)
+                # If the video ends, loop it back to the start
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                ret, frame = cap.read()
+            frames.append(frame)
+
+        # Process each frame through YOLO
+        processed_frames = []
+        counts = []
+        for frame in frames:
+            # Resize frame to save processing power on the UI
+            small_frame = cv2.resize(frame, (640, 360))
+            proc_frame, count = detector.process_frame(small_frame)
             
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            cv2.line(frame, (0, line_y), (width, line_y), (0, 0, 255), 3)
-            
-            if results[0].boxes.id is not None:
-                boxes = results[0].boxes.xyxy.cpu().numpy()
-                track_ids = results[0].boxes.id.cpu().numpy()
-                
-                for box, track_id in zip(boxes, track_ids):
-                    x1, y1, x2, y2 = box
-                    cy = int((y1 + y2) / 2)
-                    
-                    if line_y - 15 < cy < line_y + 15 and track_id not in counted_ids:
-                        vehicle_count += 1
-                        counted_ids.add(track_id)
-            
-            annotated_frame = results[0].plot()
-            annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-            
-            frame_placeholder.image(annotated_frame, channels="RGB", width="stretch")
-            count_placeholder.metric(label="Total Vehicles Counted", value=vehicle_count)
-            
+            # Streamlit needs RGB, OpenCV uses BGR
+            proc_frame_rgb = cv2.cvtColor(proc_frame, cv2.COLOR_BGR2RGB)
+            processed_frames.append(proc_frame_rgb)
+            counts.append(count)
+
+        # Update the Streamlit UI placeholders
+        count_n.metric("Vehicles in Queue", counts[0])
+        frame_n.image(processed_frames[0], channels="RGB")
+        
+        count_e.metric("Vehicles in Queue", counts[1])
+        frame_e.image(processed_frames[1], channels="RGB")
+        
+        count_s.metric("Vehicles in Queue", counts[2])
+        frame_s.image(processed_frames[2], channels="RGB")
+        
+        count_w.metric("Vehicles in Queue", counts[3])
+        frame_w.image(processed_frames[3], channels="RGB")
+
+    # Cleanup
+    for cap in caps:
         cap.release()
 
 

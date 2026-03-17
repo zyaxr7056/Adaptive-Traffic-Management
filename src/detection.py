@@ -1,73 +1,45 @@
 import cv2
+import numpy as np
 from ultralytics import YOLO
 
-def process_traffic_video(video_path):
-    print("Loading YOLO model...")
-    model = YOLO('yolov8n.pt') 
-    
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"Error: Could not open video file at {video_path}")
-        return
-
-    print("Processing video... Press 'q' to stop.")
-    vehicle_classes = [2, 3, 5, 7]
-    
-    # --- NEW: Counting Variables ---
-    vehicle_count = 0
-    counted_ids = set() # Stores IDs of vehicles already counted
-    
-    # Define the Y-coordinate for our horizontal counting line
-    # Note: You may need to change this number (e.g., 300, 500) depending on your video's resolution
-    line_y = 350 
-    
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            print("End of video stream.")
-            break
-
-        # Run YOLO tracking
-        results = model.track(frame, persist=True, classes=vehicle_classes, conf=0.5, verbose=False)
+class TrafficDetector:
+    def __init__(self, model_path='yolov8n.pt'):
+        # Load the YOLOv8 model
+        self.model = YOLO(model_path)
         
-        # --- NEW: Draw the counting line on the frame ---
-        # Get the width of the video to draw the line all the way across
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        cv2.line(frame, (0, line_y), (width, line_y), (0, 0, 255), 3) # Red line, thickness 3
+        # Define a placeholder Region of Interest (ROI) polygon.
+        # We will need to adjust these coordinates later to match your actual road!
+        self.roi_pts = np.array([[237, 10], [440, 11], [632, 352], [2, 273]], np.int32)
+        self.roi_pts = self.roi_pts.reshape((-1, 1, 2))
+
+    def process_frame(self, frame):
+        # Run YOLO inference (filtering for classes: 2=car, 3=motorcycle, 5=bus, 7=truck)
+        results = self.model(frame, classes=[2, 3, 5, 7], verbose=False)
         
-        # --- NEW: Counting Logic ---
-        # Check if any objects were detected and have IDs assigned
-        if results[0].boxes.id is not None:
-            boxes = results[0].boxes.xyxy.cpu().numpy()   # Bounding box coordinates
-            track_ids = results[0].boxes.id.cpu().numpy() # Unique tracking IDs
-            
-            for box, track_id in zip(boxes, track_ids):
-                x1, y1, x2, y2 = box
+        vehicles_in_roi = 0
+        
+        for r in results:
+            boxes = r.boxes
+            for box in boxes:
+                # Get bounding box coordinates
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
                 
-                # Calculate the center Y-coordinate of the bounding box
-                cy = int((y1 + y2) / 2)
+                # Calculate the center point of the vehicle
+                cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
                 
-                # If the center crosses our line (within a 15-pixel margin) AND hasn't been counted yet
-                if line_y - 15 < cy < line_y + 15 and track_id not in counted_ids:
-                    vehicle_count += 1
-                    counted_ids.add(track_id) # Mark this ID as counted
+                # Check if the center point is strictly inside our defined ROI polygon
+                is_inside = cv2.pointPolygonTest(self.roi_pts, (cx, cy), False)
+                
+                if is_inside >= 0:
+                    vehicles_in_roi += 1
+                    # Draw a green dot and green box if it's in the queue
+                    cv2.circle(frame, (cx, cy), 5, (0, 255, 0), -1)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                else:
+                    # Draw a red dot if it's outside the queue
+                    cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
                     
-        # Plot the bounding boxes onto the frame
-        annotated_frame = results[0].plot()
+        # Draw the ROI polygon on the frame so we can see it
+        cv2.polylines(frame, [self.roi_pts], isClosed=True, color=(255, 0, 0), thickness=2)
         
-        # --- NEW: Display the total count on the screen ---
-        cv2.putText(annotated_frame, f"Total Vehicles: {vehicle_count}", (50, 50), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2) # Green text
-
-        # Display the frame
-        cv2.imshow("Traffic Tracking & Counting", annotated_frame)
-
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    video_file = "data/raw/test_video.mp4" 
-    process_traffic_video(video_file)
+        return frame, vehicles_in_roi

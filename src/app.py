@@ -1,6 +1,7 @@
 import streamlit as st
 import cv2
 import subprocess
+import sys
 from detection import TrafficDetector
 
 # --- Page Configuration ---
@@ -16,7 +17,8 @@ with st.sidebar:
     
     # Launch Pygame simulation completely untouched in the background
     if st.button("Launch Pygame Simulation"):
-        subprocess.Popen(["python", "src/simulation.py"])
+        # sys.executable guarantees it uses your (venv) Python!
+        subprocess.Popen([sys.executable, "src/simulation.py"])
         st.success("Simulation launched in native window!")
 
 # --- Main Dashboard Layout ---

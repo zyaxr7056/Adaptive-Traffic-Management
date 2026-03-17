@@ -85,7 +85,6 @@ class Vehicle:
         self.has_turned = True
         
         # CRITICAL FIX: Correctly mapping the new travel direction
-        # Remember: 'E' means moving WEST (-x). 'W' means moving EAST (+x).
         if self.original_direction == 'N': # Moving South
             self.direction = 'E' if self.turn_intent == 'right' else 'W'
         elif self.original_direction == 'S': # Moving North
@@ -110,14 +109,12 @@ class Vehicle:
             other_rect = pygame.Rect(v.x, v.y, v.width, v.length)
             
             if vision.colliderect(other_rect):
-                # --- NEW: ANTI-DEADLOCK BYPASS ---
-                # If both cars are turning left from opposite directions, let them slip past each other
+                # ANTI-DEADLOCK BYPASS: Let opposite left-turners slip past
                 if self.turn_intent == 'left' and v.turn_intent == 'left':
                     opposing = [('N', 'S'), ('S', 'N'), ('E', 'W'), ('W', 'E')]
                     if (self.original_direction, v.original_direction) in opposing:
-                        continue # Ignore the collision and keep moving!
+                        continue 
                 
-                # Otherwise, stop for the obstacle
                 self.stopped = True
                 break
 
@@ -188,30 +185,21 @@ def draw_intersection():
     
     # Draw Lane Lines
     for i in range(0, HEIGHT, 40):
-        # Vertical center double yellow
         if i < CENTER - ROAD_WIDTH//2 or i > CENTER + ROAD_WIDTH//2:
             pygame.draw.rect(screen, YELLOW_LINE, (CENTER - 3, i, 2, 20))
             pygame.draw.rect(screen, YELLOW_LINE, (CENTER + 1, i, 2, 20))
-            
-            # Dashed white lines
             pygame.draw.rect(screen, WHITE, (CENTER - ROAD_WIDTH//4 - 1, i, 2, 20))
             pygame.draw.rect(screen, WHITE, (CENTER + ROAD_WIDTH//4 - 1, i, 2, 20))
             
-        # Horizontal center double yellow
         if i < CENTER - ROAD_WIDTH//2 or i > CENTER + ROAD_WIDTH//2:
             pygame.draw.rect(screen, YELLOW_LINE, (i, CENTER - 3, 20, 2))
             pygame.draw.rect(screen, YELLOW_LINE, (i, CENTER + 1, 20, 2))
-            
-            # Dashed white lines
             pygame.draw.rect(screen, WHITE, (i, CENTER - ROAD_WIDTH//4 - 1, 20, 2))
             pygame.draw.rect(screen, WHITE, (i, CENTER + ROAD_WIDTH//4 - 1, 20, 2))
 
 def draw_lights(current_lights):
     def draw_light_set(x, y, state, horizontal=False):
-        # Darker backing for traffic light boxes
         pygame.draw.rect(screen, (20, 20, 20), (x, y, 60 if horizontal else 20, 20 if horizontal else 60), border_radius=4)
-        colors = [RED, YELLOW, GREEN]
-        
         for i, color in enumerate([RED, YELLOW, GREEN]):
             circ_color = color if state == i else (40, 40, 40)
             if horizontal:
@@ -230,7 +218,7 @@ def main():
     
     # 1. Initialize our intelligent Traffic Logic Brain
     traffic_controller = TrafficLogic()
-    current_lights = {'N': 1, 'S': 1, 'E': 0, 'W': 0}
+    current_lights = {'N': 1, 'S': 0, 'E': 0, 'W': 0}
 
     while True:
         for event in pygame.event.get():
@@ -238,11 +226,11 @@ def main():
                 pygame.quit()
                 sys.exit()
 
-        # Randomly spawn vehicles
-        if random.randint(1, 100) <= 5: 
+        # CAPACITY FIX: Lowered spawn chance from 5% to 2%
+        if random.randint(1, 100) <= 2: 
             vehicles.append(Vehicle(random.choice(['N', 'S', 'E', 'W'])))
 
-        # 2. Calculate live counts BEFORE updating the logic
+        # Calculate live counts BEFORE updating the logic
         counts = {'N': 0, 'S': 0, 'E': 0, 'W': 0}
         for v in vehicles:
             if v.direction == 'N' and v.y < CENTER: counts['N'] += 1
@@ -250,7 +238,7 @@ def main():
             elif v.direction == 'E' and v.x > CENTER: counts['E'] += 1
             elif v.direction == 'W' and v.x < CENTER: counts['W'] += 1
 
-        # 3. Feed the counts into the logic to determine the light state
+        # Feed the counts into the logic to determine the light state
         current_lights = traffic_controller.update_lights(counts)
 
         # Draw Environment
@@ -258,27 +246,23 @@ def main():
         draw_lights(current_lights)
 
         # Update and Draw Vehicles
-        # Update and Draw Vehicles
         for v in vehicles[:]:
-            # Pass the entire 'vehicles' list to the new robust collision sensor
             v.move(vehicles, current_lights)
             v.draw(screen)
 
-            # Remove vehicles that go off screen
             if v.y > HEIGHT + 50 or v.y < -50 or v.x > WIDTH + 50 or v.x < -50:
                 vehicles.remove(v)
 
-        # 4. Draw Counters neatly in the 4 grassy corners
-        screen.blit(font.render(f"North Queue: {counts['N']}", True, WHITE), (20, 20)) # Top Left corner
-        screen.blit(font.render(f"South Queue: {counts['S']}", True, WHITE), (WIDTH - 180, HEIGHT - 40)) # Bottom Right
-        screen.blit(font.render(f"East Queue: {counts['E']}", True, WHITE), (WIDTH - 180, 20)) # Top Right
-        screen.blit(font.render(f"West Queue: {counts['W']}", True, WHITE), (20, HEIGHT - 40)) # Bottom Left
+        # Draw Counters
+        screen.blit(font.render(f"North Queue: {counts['N']}", True, WHITE), (20, 20))
+        screen.blit(font.render(f"South Queue: {counts['S']}", True, WHITE), (WIDTH - 180, HEIGHT - 40))
+        screen.blit(font.render(f"East Queue: {counts['E']}", True, WHITE), (WIDTH - 180, 20))
+        screen.blit(font.render(f"West Queue: {counts['W']}", True, WHITE), (20, HEIGHT - 40))
 
         pygame.display.flip()
         clock.tick(60)
 
 if __name__ == "__main__":
     main()
-
 
 

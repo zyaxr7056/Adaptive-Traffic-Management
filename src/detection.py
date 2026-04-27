@@ -18,9 +18,9 @@ class TrafficDetector:
         # If using the base model, filter for specific COCO vehicle classes.
         # If using the custom model, it only knows vehicles, so no filter needed!
         if self.is_custom:
-            results = self.model(frame, verbose=False)
+            results = self.model(frame, conf=0.30, verbose=False)
         else:
-            results = self.model(frame, classes=[2, 3, 5, 7], verbose=False)
+            results = self.model(frame, classes=[2, 3, 5, 7], conf=0.30, verbose=False)
         
         vehicles_in_roi = 0
         

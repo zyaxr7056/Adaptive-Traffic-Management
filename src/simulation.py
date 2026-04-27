@@ -6,6 +6,9 @@ import os
 import csv
 from datetime import datetime
 from logic import TrafficLogic
+from dotenv import load_dotenv
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 
 # Initialize Pygame
 pygame.init()
@@ -243,20 +246,14 @@ def draw_lights(current_lights):
     draw_light_set(CENTER - ROAD_WIDTH // 2 - 70, CENTER + ROAD_WIDTH // 2 + 10, current_lights['W'], True)
 
 
-def save_results_to_csv(passed_counts):
-    """Save simulation results to CSV file."""
+def save_results(passed_counts):
+    """Save simulation results to CSV file and MongoDB Cloud."""
+    # --- 1. Save to Local CSV ---
     csv_path = "data/simulation_results.csv"
-
-    # Ensure data directory exists
     os.makedirs("data", exist_ok=True)
-
-    # Check if file exists to determine if we need headers
     file_exists = os.path.exists(csv_path)
-
-    # Calculate total
     total = sum(passed_counts.values())
 
-    # Prepare row data
     row = {
         'Timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'Mode': 'Adaptive',
@@ -267,16 +264,41 @@ def save_results_to_csv(passed_counts):
         'Total': total
     }
 
-    # Write to CSV
     with open(csv_path, 'a', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=['Timestamp', 'Mode', 'Lane 1 (N)', 'Lane 2 (E)', 'Lane 3 (S)',
-                                               'Lane 4 (W)', 'Total'])
+        writer = csv.DictWriter(f, fieldnames=['Timestamp', 'Mode', 'Lane 1 (N)', 'Lane 2 (E)', 'Lane 3 (S)', 'Lane 4 (W)', 'Total'])
         if not file_exists:
             writer.writeheader()
         writer.writerow(row)
 
-    print(f"Results saved: N={passed_counts['N']}, E={passed_counts['E']}, "
-          f"S={passed_counts['S']}, W={passed_counts['W']}, Total={total}")
+    print(f"Results saved locally: N={passed_counts['N']}, E={passed_counts['E']}, S={passed_counts['S']}, W={passed_counts['W']}, Total={total}")
+
+    # --- 2. Sync to MongoDB Cloud ---
+    try:
+        print("Attempting to sync data to MongoDB Atlas...")
+        load_dotenv()
+        uri = os.getenv("MONGO_URI")
+        
+        client = MongoClient(uri, server_api=ServerApi('1'))
+        db = client['traffic_dashboard']
+        collection = db['simulation_results']
+        
+        sim_data = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "mode": "Adaptive",
+            "lanes": {
+                "north": passed_counts['N'],
+                "east": passed_counts['E'],
+                "south": passed_counts['S'],
+                "west": passed_counts['W']
+            },
+            "total_vehicles": total
+        }
+        
+        collection.insert_one(sim_data)
+        print("✅ Data successfully synced to MongoDB Cloud!")
+        
+    except Exception as e:
+        print(f"❌ Cloud Sync Failed: {e}")
 
 
 def main():
@@ -365,7 +387,7 @@ def main():
         clock.tick(60)
 
     # Save results before exiting
-    save_results_to_csv(passed_counts)
+    save_results(passed_counts)
 
     pygame.quit()
     sys.exit()
@@ -373,3 +395,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+    

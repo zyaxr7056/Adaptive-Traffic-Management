@@ -31,7 +31,8 @@ with st.sidebar:
         st.success("Simulation launched in native window!")
 
 # --- Tab Layout ---
-tab_live, tab_raw, tab_analytics = st.tabs(["Live Feeds", "Raw Data", "Analytics"])
+# We are adding a 4th tab here!
+tab_live, tab_raw, tab_analytics, tab_eval = st.tabs(["Live Feeds", "Raw Data", "Junction Analytics", "Model Evaluation"])
 
 # --- Live Feeds Tab ---
 with tab_live:
@@ -79,14 +80,12 @@ with tab_live:
 # --- Raw Data Tab ---
 with tab_raw:
     st.subheader("Simulation Results Data")
-
     csv_path = "data/simulation_results.csv"
 
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
         st.dataframe(df, use_container_width=True)
 
-        # Download button
         csv_data = df.to_csv(index=False)
         st.download_button(
             label="Download CSV",
@@ -97,45 +96,78 @@ with tab_raw:
     else:
         st.info("No simulation data available yet. Run a simulation to generate data.")
 
-# --- Analytics Tab ---
+# --- UPGRADED: Analytics Tab ---
 with tab_analytics:
-    st.subheader("Simulation Analytics")
-
+    st.subheader("Single Junction Traffic Analytics")
     csv_path = "data/simulation_results.csv"
 
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
 
-        # Summary metrics
-        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        # Advanced Summary Metrics
+        st.markdown("##### Junction Throughput Overview")
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
         with metric_col1:
             st.metric("Total Simulations", len(df))
         with metric_col2:
-            st.metric("Avg Vehicles/Sim", f"{df['Total'].mean():.1f}")
+            st.metric("Avg Vehicles per Run", f"{df['Total'].mean():.1f}")
         with metric_col3:
-            st.metric("Max Vehicles", df['Total'].max())
+            st.metric("Peak Junction Load", df['Total'].max())
+        with metric_col4:
+            # Calculate the busiest lane overall
+            lane_totals = df[['Lane 1 (N)', 'Lane 2 (E)', 'Lane 3 (S)', 'Lane 4 (W)']].sum()
+            busiest_lane = lane_totals.idxmax()
+            st.metric("Busiest Approach", busiest_lane.split(' ')[0])
 
         st.divider()
 
-        # Line chart of total vehicles per simulation run
-        st.subheader("Total Vehicles Passed Per Simulation")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("##### Total Traffic Trend")
+            chart_data = df[['Total']].copy()
+            chart_data['Run Index'] = range(1, len(chart_data) + 1)
+            chart_data = chart_data.set_index('Run Index')
+            st.area_chart(chart_data) # Upgraded to an area chart for better visuals
 
-        # Create a run index for x-axis
-        chart_data = df[['Total']].copy()
-        chart_data['Run'] = range(1, len(chart_data) + 1)
-        chart_data = chart_data.set_index('Run')
+        with col2:
+            st.markdown("##### Latest Run: Lane Distribution")
+            # Grab the very last row of data for a snapshot of the most recent simulation
+            latest_run = df.iloc[-1][['Lane 1 (N)', 'Lane 2 (E)', 'Lane 3 (S)', 'Lane 4 (W)']]
+            st.bar_chart(latest_run)
 
-        st.line_chart(chart_data)
-
-        # Lane breakdown chart
-        st.subheader("Vehicles by Lane Per Simulation")
-        lane_data = df[['Lane 1 (N)', 'Lane 2 (E)', 'Lane 3 (S)', 'Lane 4 (W)']].copy()
-        lane_data['Run'] = range(1, len(lane_data) + 1)
-        lane_data = lane_data.set_index('Run')
-
-        st.line_chart(lane_data)
     else:
         st.info("No simulation data available yet. Run a simulation to generate analytics.")
+
+# --- NEW: Model Evaluation Tab ---
+with tab_eval:
+    st.subheader("AI Model Performance & Accuracy")
+    st.markdown("These metrics evaluate the custom YOLOv8 model trained specifically for top-down traffic analysis.")
+    
+    st.markdown("##### Mean Average Precision (mAP50)")
+    stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+    stat_col1.metric("Overall mAP", "63.2%")
+    stat_col2.metric("Car Precision", "87.4%")
+    stat_col3.metric("Truck Precision", "75.2%")
+    stat_col4.metric("Bus Precision", "27.0%", help="Lower accuracy due to extreme class imbalance in training data (only 23 samples).")
+    
+    st.divider()
+    
+    st.markdown("##### Validation Metrics")
+    # Display the curves in a clean 3-column layout
+    curve_col1, curve_col2, curve_col3 = st.columns(3)
+    
+    with curve_col1:
+        if os.path.exists("assets/PR_curve.png"): # Make sure the name matches your file!
+            st.image("assets/PR_curve.png", caption="Precision-Recall Curve (Note the bus class imbalance)")
+            
+    with curve_col2:
+        if os.path.exists("assets/F1_curve.png"):
+            st.image("assets/F1_curve.png", caption="F1-Confidence Curve (Peak efficiency at 0.305 threshold)")
+            
+    with curve_col3:
+        if os.path.exists("assets/P_curve.png"):
+            st.image("assets/P_curve.png", caption="Precision-Confidence Curve")
 
 # --- Video Processing Loop ---
 if start_cameras:

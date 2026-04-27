@@ -14,6 +14,13 @@ st.title("Adaptive Traffic Management Dashboard")
 # --- Sidebar Controls ---
 with st.sidebar:
     st.header("Control Panel")
+    
+    # Model Selector
+    model_choice = st.selectbox(
+        "AI Detection Model", 
+        ["Custom Tuned (Traffic)", "Pre-trained (COCO Base)"]
+    )
+    
     start_cameras = st.button("Start Camera Feeds", type="primary")
     stop_cameras = st.button("Stop Cameras")
     st.divider()
@@ -157,8 +164,14 @@ if start_cameras:
     if not valid_paths:
         st.error("Please upload video files for all cameras or ensure default video exists.")
     else:
-        # Initialize AI Detector
-        detector = TrafficDetector()
+        # Determine which weights to load based on user selection
+        if model_choice == "Custom Tuned (Traffic)":
+            weight_path = "models/best.pt"
+        else:
+            weight_path = "yolov8n.pt"
+            
+        # Initialize AI Detector with chosen weights
+        detector = TrafficDetector(model_path=weight_path)
 
         # Open video captures
         caps = [cv2.VideoCapture(path) for path in video_paths]

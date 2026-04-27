@@ -3,18 +3,24 @@ import numpy as np
 from ultralytics import YOLO
 
 class TrafficDetector:
-    def __init__(self, model_path='yolov8n.pt'):
-        # Load the YOLOv8 model
+    def __init__(self, model_path='models/best.pt'):
+        # Load the chosen YOLOv8 model
         self.model = YOLO(model_path)
         
+        # Check if we are using the custom model to avoid class index crashes
+        self.is_custom = "best.pt" in model_path
+        
         # Define a placeholder Region of Interest (ROI) polygon.
-        # We will need to adjust these coordinates later to match your actual road!
         self.roi_pts = np.array([[237, 10], [440, 11], [632, 352], [2, 273]], np.int32)
         self.roi_pts = self.roi_pts.reshape((-1, 1, 2))
 
     def process_frame(self, frame):
-        # Run YOLO inference (filtering for classes: 2=car, 3=motorcycle, 5=bus, 7=truck)
-        results = self.model(frame, classes=[2, 3, 5, 7], verbose=False)
+        # If using the base model, filter for specific COCO vehicle classes.
+        # If using the custom model, it only knows vehicles, so no filter needed!
+        if self.is_custom:
+            results = self.model(frame, verbose=False)
+        else:
+            results = self.model(frame, classes=[2, 3, 5, 7], verbose=False)
         
         vehicles_in_roi = 0
         
